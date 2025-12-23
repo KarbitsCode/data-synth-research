@@ -61,18 +61,20 @@ logger.info(f"Validation set: {X_val.shape[0]} samples")
 logger.info(f"Test set: {X_test.shape[0]} samples")
 logger.info(f"Class distribution before resampling: {y_train.value_counts().to_dict()}")
 
+epochs = 500
+batch_size = 250
 
 # 1. SDV GAN
 logger.info("Training SDV CTGAN")
 X_train_sdv_gan, y_train_sdv_gan = oversample_with_sdv_ctgan(
-    X_train, y_train, target_class=1, oversample_ratio=1.0, epochs=500, batch_size=250
+    X_train, y_train, target_class=1, oversample_ratio=1.0, epochs=epochs, batch_size=batch_size
 )
 logger.info(f"SDV GAN - Class distribution: {pd.Series(y_train_sdv_gan).value_counts().to_dict()}")
 
 # 2. SDV Copula GAN
 logger.info("Training SDV Copula GAN")
 X_train_sdv_copula_gan, y_train_sdv_copula_gan = oversample_with_copula_gan(
-    X_train, y_train, target_class=1, oversample_ratio=1.0, epochs=500, batch_size=250
+    X_train, y_train, target_class=1, oversample_ratio=1.0, epochs=epochs, batch_size=batch_size
 )
 logger.info(f"SDV Copula GAN - Class distribution: {pd.Series(y_train_sdv_copula_gan).value_counts().to_dict()}")
 
@@ -104,7 +106,8 @@ logger.info("Evaluating models")
 results_df = evaluate_models_to_dataframe(models_dict, X_test, y_test)
 
 # Load  results
-results_path = os.path.join(project_root, 'results', 'xgb_imbalanced_handling_results.csv')
+dataset = '01_creditcard.csv'
+results_path = os.path.join(project_root, 'results', f'xgb_imbalanced_{dataset}_results.csv')
 previous_results_df = pd.read_csv(results_path)
 results_df = pd.concat([previous_results_df, results_df], ignore_index=True)
 results_df.to_csv(results_path, index=False)

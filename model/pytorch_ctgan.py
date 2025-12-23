@@ -20,7 +20,7 @@ class CTGANGenerator(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, data_dim),  # 128 -> 29
-            nn.Tanh()
+            # nn.Tanh()
         )
 
     def forward(self, noise):

@@ -25,7 +25,7 @@ class Generator(nn.Module):
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, data_dim),    # 128 -> data_dim
-            nn.Tanh()
+            # nn.Tanh()
         )
 
     def forward(self, noise):

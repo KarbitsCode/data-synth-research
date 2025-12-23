@@ -24,7 +24,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from imblearn.combine import SMOTEENN
 from imblearn.over_sampling import SMOTE, BorderlineSMOTE
-from model import oversample_with_pytorch_gan, oversample_with_ctgan
+from model import oversample_with_pytorch_gan, oversample_with_ctgan, oversample_with_cond_wgangp
 from evaluation.evaluation import evaluate_models_to_dataframe
 
 try:
@@ -36,7 +36,8 @@ except FileNotFoundError:
     logger.warning("Homebrew not found. Please install Homebrew first or run 'brew install libomp' manually")
 
 # Load data
-data_path = os.path.join(project_root, 'data', '01_creditcard.csv')
+filename = '01_creditcard.csv'
+data_path = os.path.join(project_root, 'data', filename)
 logger.info(f"Loading data from {data_path}")
 df = pd.read_csv(data_path)
 logger.info(f"Data loaded: {df.shape[0]} rows, {df.shape[1]} columns")
@@ -81,19 +82,29 @@ smote_enn = SMOTEENN(random_state=random_state)
 X_train_smoteenn, y_train_smoteenn, *_ = smote_enn.fit_resample(X_train, y_train)
 logger.info(f"SMOTEENN - Class distribution: {y_train_smoteenn.value_counts().to_dict()}")
 
+epochs = 500
+batch_size = 128
+
 # 4. Pytorch GAN
 logger.info("Training Pytorch GAN")
 X_train_gan, y_train_gan, gen_losses, disc_losses = oversample_with_pytorch_gan(
-    X_train, y_train, target_class=1, oversample_ratio=1.0, epochs=500, batch_size=500
+    X_train, y_train, target_class=1, oversample_ratio=1.0, epochs=epochs, batch_size=batch_size
 )
 logger.info(f"Pytorch GAN - Class distribution: {pd.Series(y_train_gan).value_counts().to_dict()}")
 
 # 5. Pytorch CTGAN
 logger.info("Training Pytorch CTGAN")
 X_train_ctgan, y_train_ctgan, gen_losses_ctgan, disc_losses_ctgan = oversample_with_ctgan(
-    X_train, y_train, target_class=1, oversample_ratio=1.0, epochs=500, batch_size=500
+    X_train, y_train, target_class=1, oversample_ratio=1.0, epochs=epochs, batch_size=batch_size
 )
 logger.info(f"Pytorch CTGAN - Class distribution: {pd.Series(y_train_ctgan).value_counts().to_dict()}")
+
+# 6. Pytorch Conditional WGAN-GP
+logger.info("Training Pytorch Conditional WGAN-GP")
+X_train_cwgangp, y_train_cwgangp, gen_losses_cwgangp, disc_losses_cwgangp = oversample_with_cond_wgangp(
+    X_train, y_train, target_class=1, target_ratio=1.0, epochs=epochs, batch_size=batch_size
+)
+logger.info(f"Pytorch Conditional WGAN-GP - Class distribution: {pd.Series(y_train_cwgangp).value_counts().to_dict()}")
 
 # Training and evaluation
 params = {
@@ -112,6 +123,7 @@ training_data = {
     'XGB with SMOTEENN': (X_train_smoteenn, y_train_smoteenn),
     'XGB with Pytorch GAN': (X_train_gan, y_train_gan),
     'XGB with CTGAN': (X_train_ctgan, y_train_ctgan),
+    'XGB with Conditional WGAN-GP': (X_train_cwgangp, y_train_cwgangp),
 }
 
 logger.info("Training models")
@@ -127,6 +139,6 @@ logger.info("Evaluating models")
 results_df = evaluate_models_to_dataframe(models_dict, X_test, y_test)
 
 # Save results
-results_path = os.path.join(project_root, 'results', 'xgb_imbalanced_handling_results.csv')
+results_path = os.path.join(project_root, 'results', f'xgb_imbalanced_{filename}_results.csv')
 results_df.to_csv(results_path, index=False)
 logger.info(f"Results saved to {results_path}")
