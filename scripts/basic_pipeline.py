@@ -36,7 +36,7 @@ except FileNotFoundError:
     logger.warning("Homebrew not found. Please install Homebrew first or run 'brew install libomp' manually")
 
 # Load data
-filename = '01_creditcard.csv'
+filename = '03_fraud_oracle.csv'
 data_path = os.path.join(project_root, 'data', filename)
 logger.info(f"Loading data from {data_path}")
 df = pd.read_csv(data_path)
