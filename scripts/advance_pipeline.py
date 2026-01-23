@@ -37,7 +37,7 @@ except FileNotFoundError:
 
 # === DATASET SELECTION ===
 # Change this to switch datasets
-DATASET_NAME = '04_bank_account.csv' # or '01_creditcard.csv', '03_fraud_oracle.csv', '04_bank_account.csv', '05_online_payment.csv'
+DATASET_NAME = '01_creditcard.csv' # or '01_creditcard.csv', '03_fraud_oracle.csv', '04_bank_account.csv', '05_online_payment.csv'
 DATA_ROOT = "/Users/rudyhendrawan/Projects/data"
 logger.info(f"Loading dataset: {DATASET_CONFIG[DATASET_NAME]['name']}")
 
@@ -46,7 +46,8 @@ loader = UniversalDataLoader(
     DATASET_NAME, 
     project_root=project_root, 
     data_root=DATA_ROOT,
-    verbose=True
+    verbose=True,
+    large_data=False # For large datasets e.g. 04_bank_account.csv, use chunking
 )
 
 X_train, X_val, X_test, y_train, y_val, y_test, preprocessor = loader.train_val_test_split()
@@ -74,8 +75,8 @@ smote_enn = SMOTEENN(random_state=random_state)
 X_train_smoteenn, y_train_smoteenn, *_ = smote_enn.fit_resample(X_train, y_train)
 logger.info(f"SMOTEENN - Class distribution: {y_train_smoteenn.value_counts().to_dict()}")
 
-epochs = 5
-batch_size = 128
+epochs = 500
+batch_size = 64
 
 # 4. PyTorch GAN
 logger.info("Training PyTorch GAN")
@@ -131,6 +132,6 @@ logger.info("Evaluating models")
 results_df = evaluate_models_to_dataframe(models_dict, X_test, y_test)
 
 # === SAVE RESULTS ===
-results_path = os.path.join(project_root, 'results', f'xgb_{DATASET_NAME.replace(".csv", "")}_results.csv')
+results_path = os.path.join(project_root, 'results', f'xgb_{DATASET_NAME.replace(".csv", "")}_{epochs}_results.csv')
 results_df.to_csv(results_path, index=False)
 logger.info(f"Results saved to {results_path}")

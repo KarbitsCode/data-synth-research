@@ -34,7 +34,7 @@ DATASET_CONFIG = {
         ],
         'test_size': 0.4,
         'stratify': True,
-        'shuffle': True,
+        'shuffle': False,
     },
     '04_bank_account.csv': {
         'name': 'Bank Account Fraud',
