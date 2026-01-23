@@ -1,5 +1,11 @@
 """
 Dataset-specific configuration for multi-dataset pipeline.
+
+Read first:
+    - temporal_col should be valid (not None) if shuffle=False
+    - if temporal is None, shuffle must be True
+    - group_cols should be None if no grouping is needed
+
 """
 
 DATASET_CONFIG = {
@@ -12,6 +18,8 @@ DATASET_CONFIG = {
         'requires_encoding': False,
         'numeric_cols': None,  # Auto-detect all except label
         'categorical_cols': [],
+        'group_cols': None,
+        'group_min_interactions': None,
         'test_size': 0.4,
         'stratify': True,
         'shuffle': False,  # Time-aware split
@@ -35,6 +43,8 @@ DATASET_CONFIG = {
         'test_size': 0.4,
         'stratify': True,
         'shuffle': False,
+        'group_cols': None,
+        'group_min_interactions': None,
     },
     '04_bank_account.csv': {
         'name': 'Bank Account Fraud',
@@ -49,7 +59,9 @@ DATASET_CONFIG = {
         'test_size': 0.4,
         'stratify': True,
         'shuffle': True,
-    },
+        'group_cols': None,
+        'group_min_interactions': None,
+    }, 
     '05_online_payment.csv': {
         'name': 'Online Payment Fraud',
         'type': 'mixed',
@@ -58,6 +70,8 @@ DATASET_CONFIG = {
         'temporal_col': 'step',
         'requires_encoding': True,
         'categorical_cols': ['type'],
+        'group_cols': None,
+        'group_min_interactions': None,
         'test_size': 0.4,
         'stratify': True,
         'shuffle': False,  # Keep temporal order

@@ -23,6 +23,7 @@ class DatasetPreprocessor:
         self.categorical_cols = config.get('categorical_cols', [])
         self.scaler = StandardScaler()
         self.label_encoders = {}
+        self.unknown_token = config.get('unknown_token', '__UNK__')
 
     def detect_column(self, df: pd.DataFrame):
         """
@@ -82,10 +83,20 @@ class DatasetPreprocessor:
             if col in X.columns:
                 if fit:
                     self.label_encoders[col] = LabelEncoder()
-                    X[col] = self.label_encoders[col].fit_transform(X[col].astype(str))
+                    values = X[col].astype(str)
+                    if self.unknown_token not in values.values:
+                        fit_values = pd.concat([values, pd.Series([self.unknown_token])], ignore_index=True)
+                    else:
+                        fit_values = values
+                    self.label_encoders[col].fit(fit_values)
+                    X[col] = self.label_encoders[col].transform(values)
                 else:
                     if col in self.label_encoders:
-                        X[col] = self.label_encoders[col].transform(X[col].astype(str))
+                        values = X[col].astype(str)
+                        encoder = self.label_encoders[col]
+                        if self.unknown_token in encoder.classes_:
+                            values = values.where(values.isin(encoder.classes_), other=self.unknown_token)
+                        X[col] = encoder.transform(values)
                     else:
                         logger.warning(f"LabelEncoder for '{col}' not fitted. Skipping encoding.")
 

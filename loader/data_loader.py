@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from pandas._typing import DtypeArg
 
-from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
+from sklearn.model_selection import train_test_split, StratifiedShuffleSplit, StratifiedGroupKFold
 from preprocessor.data_config import DATASET_CONFIG
 from preprocessor.data_preprocessor import DatasetPreprocessor
 
@@ -53,6 +53,8 @@ class UniversalDataLoader:
         
         df = pd.read_csv(self.data_path)
         logger.info(f"Loaded raw data: {df.shape[0]} rows, {df.shape[1]} columns")
+        logger.info(f"Class distribution: {df[self.config['label_col']].value_counts().to_dict()}")
+
         
         return df
     
@@ -79,7 +81,7 @@ class UniversalDataLoader:
         # Preprocess data
         X, y = self.preprocessor.preprocess(df, fit=fit)
 
-        logger.info(f"Class distribution after preprocessing:\n{y.value_counts(normalize=True)}")
+        logger.info(f"Class distribution after preprocessing: {y.value_counts(normalize=True).to_dict()}")
         
         return X, y, self.preprocessor
     
@@ -220,47 +222,76 @@ class UniversalDataLoader:
         # Initialize preprocessor
         self.preprocessor = DatasetPreprocessor(self.config, verbose=self.verbose)
 
-        # Handle temporal data (time-aware split)
-        if self.config['type'] in ['numeric_temporal', 'mixed'] and not self.config.get('shuffle', True):
-            logger.info("Using time-aware split (forward-chaining) based on temporal column.")
-            
-            # Sort by temporal column if exists
-            temporal_col = self.config.get('temporal_col')
-            if temporal_col and temporal_col in df.columns:
-                df = df.sort_values(by=temporal_col).reset_index(drop=True)
-                logger.info(f"Sorted by temporal column: {temporal_col}")
+        label_col = self.config['label_col']
+        temporal_col = self.config.get('temporal_col')
+        use_temporal = (
+            self.config['type'] in ['numeric_temporal', 'mixed']
+            and not self.config.get('shuffle', True)
+            and temporal_col
+            and temporal_col in df.columns
+        )
 
-            # Split into train (60%), val (20%), test (20%)
-            test_size = self.config['test_size'] # 0.4
-            val_size = 0.5 # Half of test (which is 40%) -> 20% of total
+        group_col = self.config.get('group_col')
+        group_min_interactions = self.config.get('group_min_interactions', 2)
+        use_group_kfold = False
+        if group_col and group_col in df.columns:
+            group_counts = df[group_col].value_counts()
+            use_group_kfold = group_counts.max() >= group_min_interactions
+
+        if use_temporal:
+            logger.info("Using time-aware split (forward-chaining) based on temporal column.")
+            if temporal_col is None:
+                raise ValueError("Temporal column is not set but time-aware split was requested.")
+            df = df.sort_values(by=temporal_col).reset_index(drop=True)
+            logger.info(f"Sorted by temporal column: {temporal_col}")
+
+            test_size = self.config['test_size']  # 0.4
+            val_size = 0.5  # Half of test (which is 40%) -> 20% of total
 
             train, temp = train_test_split(df, test_size=test_size, shuffle=False)
             val, test = train_test_split(temp, test_size=val_size, shuffle=False)
+        elif use_group_kfold:
+            logger.info("Using StratifiedGroupKFold (group-aware) split.")
+            n_splits = 5
+            sgkf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=42)
+
+            groups = df[group_col]
+            folds = list(sgkf.split(df, df[label_col], groups))
+
+            if len(folds) < 5:
+                raise ValueError("Not enough groups to perform StratifiedGroupKFold with 5 splits.")
+
+            test_idx = folds[0][1]
+            val_idx = folds[1][1]
+            train_idx = np.setdiff1d(
+                np.arange(len(df)),
+                np.concatenate([val_idx, test_idx]),
+                assume_unique=False,
+            )
+
+            train = df.iloc[train_idx].copy()
+            val = df.iloc[val_idx].copy()
+            test = df.iloc[test_idx].copy()
         else:
-            # Stratified Shuffle Split
             logger.info("Using stratified shuffle split.")
 
-            test_size = self.config['test_size'] # 0.4
-            val_size = 0.5 # Half of test (which is 40%) -> 20% of total
-            label_col = self.config['label_col']
+            test_size = self.config['test_size']  # 0.4
+            val_size = 0.5  # Half of test (which is 40%) -> 20% of total
 
-            if self.config.get('stratify', True):
-                stratify_col = df[label_col]
-            else:
-                stratify_col = None
+            stratify_col = df[label_col] if self.config.get('stratify', True) else None
 
             train, temp = train_test_split(
-                df, 
+                df,
                 test_size=test_size,
                 stratify=stratify_col,
-                random_state=42
+                random_state=42,
             )
 
             val, test = train_test_split(
                 temp,
                 test_size=val_size,
                 stratify=temp[label_col] if stratify_col is not None else None,
-                random_state=42
+                random_state=42,
             )
 
         # Preprocess all splits
