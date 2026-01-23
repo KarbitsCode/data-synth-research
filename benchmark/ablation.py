@@ -64,6 +64,12 @@ class AblationStudyManager:
                     baseline="None",
                     description="Data balancing technique",
                 ),
+                "anomaly_signal": AblationComponent(
+                    name="anomaly_signal",
+                    options=["None", "IsolationForest", "LOF", "Autoencoder"],
+                    baseline="None",
+                    description="Unsupervised anomaly detection signal",
+                ),
                 "model": AblationComponent(
                     name="model",
                     options=[

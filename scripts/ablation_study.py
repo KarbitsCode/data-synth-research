@@ -53,6 +53,10 @@ if __name__ == "__main__":
     exp_calibration = ablation_mgr.generate_single_factor_ablation("calibration")
     ablation_mgr.save_experiments(exp_calibration, "ablation_4_calibration.json")
 
+    logger.info("Generating Ablation 5: Anomaly Signals")
+    exp_anomaly = ablation_mgr.generate_single_factor_ablation("anomaly_signal")
+    ablation_mgr.save_experiments(exp_anomaly, "ablation_5_anomaly_signal.json")
+
     logger.info("\n" + "=" * 60)
     logger.info("Running Ablation Study: Oversampling Methods")
     logger.info("=" * 60)

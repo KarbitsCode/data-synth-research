@@ -12,6 +12,7 @@ from sklearn.model_selection import train_test_split
 
 from loader.data_loader import UniversalDataLoader
 from preprocessor.data_preprocessor import DatasetPreprocessor
+from model.anomaly import add_anomaly_scores
 
 from .ablation import AblationExperiment
 from .temporal_cv import TemporalLeakageFreeCV, TimeGapConfig
@@ -78,6 +79,16 @@ class CrossDomainBenchmark:
         X_val, y_val = preprocessor.preprocess(val_df, fit=False)
         X_test, y_test = preprocessor.preprocess(test_df, fit=False)
 
+        anomaly_method = experiment.components.get("anomaly_signal", "None")
+        if anomaly_method != "None":
+            X_train, X_val, X_test = add_anomaly_scores(
+                X_train,
+                X_val,
+                X_test,
+                method=anomaly_method,
+                random_state=seed,
+            )
+
         X_train_resampled, y_train_resampled = self._apply_oversampling(
             X_train, y_train, method=experiment.components["oversampling"], seed=seed
         )
@@ -103,6 +114,7 @@ class CrossDomainBenchmark:
             "exp_id": experiment.exp_id,
             "seed": seed,
             "oversampling": experiment.components["oversampling"],
+            "anomaly_signal": anomaly_method,
             "model": experiment.components["model"],
             "calibration": experiment.components["calibration"],
             "pr_auc": average_precision_score(y_test, y_pred_proba),

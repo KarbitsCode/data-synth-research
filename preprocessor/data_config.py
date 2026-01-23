@@ -42,7 +42,7 @@ DATASET_CONFIG = {
         ],
         'test_size': 0.4,
         'stratify': True,
-        'shuffle': False,
+        'shuffle': False,   # Time-aware split
         'group_cols': None,
         'group_min_interactions': None,
     },
@@ -58,7 +58,7 @@ DATASET_CONFIG = {
         ],
         'test_size': 0.4,
         'stratify': True,
-        'shuffle': True,
+        'shuffle': False,   # Time-aware split
         'group_cols': None,
         'group_min_interactions': None,
     }, 
@@ -74,6 +74,6 @@ DATASET_CONFIG = {
         'group_min_interactions': None,
         'test_size': 0.4,
         'stratify': True,
-        'shuffle': False,  # Keep temporal order
+        'shuffle': False,   # Time-aware split
     },
 }
