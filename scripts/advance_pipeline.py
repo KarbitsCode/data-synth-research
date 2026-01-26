@@ -48,7 +48,7 @@ logger.info(f"Loading dataset: {DATASET_CONFIG[DATASET_NAME]['name']}")
 
 # === ANOMALY FEATURE SETTINGS ===
 USE_ANOMALY_FEATURES = True
-ANOMALY_METHOD = "IsolationForest"  # None, IsolationForest, LOF, Autoencoder
+ANOMALY_METHOD = "IsolationForest"  # None, IsolationForest, LOF  (Autoencoder disabled for runtime)
 ANOMALY_CONTAMINATION = 0.01
 
 # === FULL ABLATION (SINGLE DATASET) ===
@@ -176,7 +176,7 @@ if RUN_FULL_ABLATION_SINGLE_DATASET:
                 oversampling_results.append(res)
         if oversampling_results:
             pd.DataFrame(oversampling_results).to_csv(
-                os.path.join(DATASET_NAME, "results", "ablation", f"significance_oversampling_single_{timestamp}.csv"),
+                os.path.join("results", "ablation", f"significance_oversampling_single_{timestamp}.csv"),
                 index=False,
             )
 

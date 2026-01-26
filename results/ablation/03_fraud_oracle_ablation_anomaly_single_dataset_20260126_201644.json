@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-01-26T18:30:00.989517",
+  "generated_at": "2026-01-26T20:16:44.868654",
   "experiments": [
     {
       "exp_id": "ablation_anomaly_signal_None",
@@ -30,16 +30,6 @@
         "calibration": "None"
       },
       "description": "Ablate anomaly_signal: LOF"
-    },
-    {
-      "exp_id": "ablation_anomaly_signal_Autoencoder",
-      "components": {
-        "oversampling": "None",
-        "anomaly_signal": "Autoencoder",
-        "model": "LogisticRegression",
-        "calibration": "None"
-      },
-      "description": "Ablate anomaly_signal: Autoencoder"
     }
   ]
 }
