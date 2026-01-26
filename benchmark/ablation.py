@@ -67,7 +67,7 @@ class AblationStudyManager:
                 ),
                 "anomaly_signal": AblationComponent(
                     name="anomaly_signal",
-                    options=["None", "IsolationForest", "LOF", "Autoencoder"],
+                    options=["None", "IsolationForest", "LOF"], # Autoencoder removed for simplicity
                     baseline="None",
                     description="Unsupervised anomaly detection signal",
                 ),
