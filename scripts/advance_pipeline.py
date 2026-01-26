@@ -23,7 +23,9 @@ from xgboost import XGBClassifier
 from imblearn.over_sampling import SMOTE, BorderlineSMOTE
 from imblearn.combine import SMOTEENN
 from model import oversample_with_pytorch_gan, oversample_with_ctgan, oversample_with_cond_wgangp
+from model.anomaly import add_anomaly_scores
 from evaluation.evaluation import evaluate_models_to_dataframe
+from evaluation.synth_eval import evaluate_synthetic_data, extract_synthetic_tail
 from loader.data_loader import UniversalDataLoader
 from preprocessor.data_config import DATASET_CONFIG
 
@@ -37,9 +39,14 @@ except FileNotFoundError:
 
 # === DATASET SELECTION ===
 # Change this to switch datasets
-DATASET_NAME = '01_creditcard.csv' # or '01_creditcard.csv', '03_fraud_oracle.csv', '04_bank_account.csv', '05_online_payment.csv'
+DATASET_NAME = '05_online_payment.csv' # or '01_creditcard.csv', '03_fraud_oracle.csv', '04_bank_account.csv', '05_online_payment.csv'
 DATA_ROOT = "/Users/rudyhendrawan/Projects/data"
 logger.info(f"Loading dataset: {DATASET_CONFIG[DATASET_NAME]['name']}")
+
+# === ANOMALY FEATURE SETTINGS ===
+USE_ANOMALY_FEATURES = True
+ANOMALY_METHOD = "IsolationForest"  # None, IsolationForest, LOF, Autoencoder
+ANOMALY_CONTAMINATION = 0.01
 
 # === LOAD AND PREPROCESS DATA ===
 loader = UniversalDataLoader(
@@ -51,8 +58,21 @@ loader = UniversalDataLoader(
 )
 
 X_train, X_val, X_test, y_train, y_val, y_test, preprocessor = loader.train_val_test_split()
-
+logger.info(f"Data Training: {X_train.shape}, {y_train.shape}")
+logger.info(f"Data Validation: {X_val.shape}, {y_val.shape}")
+logger.info(f"Data Testing: {X_test.shape}, {y_test.shape}")
 random_state = 42
+
+if USE_ANOMALY_FEATURES and ANOMALY_METHOD != "None":
+    logger.info("Adding anomaly score feature: %s", ANOMALY_METHOD)
+    X_train, X_val, X_test = add_anomaly_scores(
+        X_train,
+        X_val,
+        X_test,
+        method=ANOMALY_METHOD,
+        random_state=random_state,
+        contamination=ANOMALY_CONTAMINATION,
+    )
 
 # === RESAMPLING METHODS ===
 logger.info("Applying resampling techniques")
@@ -84,6 +104,7 @@ X_train_gan, y_train_gan, gen_losses, disc_losses = oversample_with_pytorch_gan(
     X_train, y_train, target_class=1, oversample_ratio=1.0, epochs=epochs, batch_size=batch_size
 )
 logger.info(f"PyTorch GAN - Class distribution: {pd.Series(y_train_gan).value_counts().to_dict()}")
+gan_syn_X, gan_syn_y = extract_synthetic_tail(X_train, X_train_gan, y_train, y_train_gan)
 
 # 5. CTGAN
 logger.info("Training CTGAN")
@@ -91,6 +112,7 @@ X_train_ctgan, y_train_ctgan, gen_losses_ctgan, disc_losses_ctgan = oversample_w
     X_train, y_train, target_class=1, oversample_ratio=1.0, epochs=epochs, batch_size=batch_size
 )
 logger.info(f"CTGAN - Class distribution: {pd.Series(y_train_ctgan).value_counts().to_dict()}")
+ctgan_syn_X, ctgan_syn_y = extract_synthetic_tail(X_train, X_train_ctgan, y_train, y_train_ctgan)
 
 # 6. Conditional WGAN-GP
 logger.info("Training Conditional WGAN-GP")
@@ -98,6 +120,39 @@ X_train_cwgangp, y_train_cwgangp, gen_losses_cwgangp, disc_losses_cwgangp = over
     X_train, y_train, target_class=1, target_ratio=1.0, epochs=epochs, batch_size=batch_size
 )
 logger.info(f"Conditional WGAN-GP - Class distribution: {pd.Series(y_train_cwgangp).value_counts().to_dict()}")
+cwgan_syn_X, cwgan_syn_y = extract_synthetic_tail(X_train, X_train_cwgangp, y_train, y_train_cwgangp)
+
+# === SYNTHETIC DATA EVALUATION ===
+logger.info("Evaluating synthetic data quality")
+synth_eval_rows = []
+
+def _append_synth_eval(method_name, syn_X, syn_y):
+    if syn_X is None or X_test is None or y_test is None:
+        return
+    
+    metrics = evaluate_synthetic_data(
+        X_real=X_train,
+        X_syn=syn_X,
+        X_test=X_test,
+        y_test=y_test,
+        y_syn=syn_y,
+        y_real=y_train,
+        seed=random_state,
+    )
+    metrics["method"] = method_name
+    synth_eval_rows.append(metrics)
+
+_append_synth_eval("PyTorch_GAN", gan_syn_X, gan_syn_y)
+_append_synth_eval("CTGAN", ctgan_syn_X, ctgan_syn_y)
+_append_synth_eval("Conditional_WGAN_GP", cwgan_syn_X, cwgan_syn_y)
+
+if synth_eval_rows:
+    synth_eval_df = pd.DataFrame(synth_eval_rows)
+    synth_eval_path = os.path.join(
+        project_root, "results", f"synth_eval_{DATASET_NAME.replace('.csv', '')}_{epochs}.csv"
+    )
+    synth_eval_df.to_csv(synth_eval_path, index=False)
+    logger.info("Synthetic evaluation saved to %s", synth_eval_path)
 
 # === MODEL TRAINING ===
 params = {
