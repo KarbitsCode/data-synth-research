@@ -42,8 +42,8 @@ except FileNotFoundError:
 
 # === DATASET SELECTION ===
 # Change this to switch datasets
-DATASET_NAME = '03_fraud_oracle.csv' # or '01_creditcard.csv', '03_fraud_oracle.csv', '04_bank_account.csv', '05_online_payment.csv'
-DATA_ROOT = "/Users/rudyhendrawan/Projects/data"
+DATASET_NAME = '05_online_payment.csv' # or '01_creditcard.csv', '03_fraud_oracle.csv', '04_bank_account.csv', '05_online_payment.csv'
+DATA_ROOT = os.path.join(project_root, "datasets")
 logger.info(f"Loading dataset: {DATASET_CONFIG[DATASET_NAME]['name']}")
 
 # === ANOMALY FEATURE SETTINGS ===
