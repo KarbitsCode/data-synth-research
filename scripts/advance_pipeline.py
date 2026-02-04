@@ -116,7 +116,7 @@ if RUN_FULL_ABLATION_SINGLE_DATASET:
         precision_target=0.9,
         fpr_target=0.05,
         threshold_strategy="precision",
-        bootstrap_samples=2000,
+        bootstrap_samples=500, # Down from 2000
     )
     oversampling_df = benchmark.run_ablation_study(
         exp_oversampling,
@@ -303,7 +303,7 @@ X_train_smoteenn, y_train_smoteenn, *_ = smote_enn.fit_resample(X_train, y_train
 logger.info(f"SMOTEENN - Class distribution: {y_train_smoteenn.value_counts().to_dict()}")
 
 epochs = 500
-batch_size = 64
+batch_size = 256 # Larger batch size
 
 # 4. PyTorch GAN
 logger.info("Training PyTorch GAN")
