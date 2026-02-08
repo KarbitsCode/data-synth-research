@@ -47,24 +47,12 @@ class UniversalDataLoader:
         logger.info(f"Initialized loader for: {self.config['name']}")
         logger.info(f"Data path: {self.data_path}")
 
-    def load_raw(self, sample_size: Optional[int] = None) -> pd.DataFrame:
+    def load_raw(self) -> pd.DataFrame:
         if not os.path.exists(self.data_path):
             raise FileNotFoundError(f"Data file not found at: {self.data_path}")
         
         df = pd.read_csv(self.data_path)
         logger.info(f"Loaded raw data: {df.shape[0]} rows, {df.shape[1]} columns")
-
-        # Auto-sample if dataset > 1M rows
-        if sample_size is None and len(df) > 1_000_000:
-            sample_size = 500_000
-            logger.warning(f"Large dataset detected. Auto-sampling to {sample_size:,} rows")
-        if sample_size and len(df) > sample_size:
-            from sklearn.model_selection import train_test_split
-            df, _ = train_test_split(df, train_size=sample_size,
-                                    stratify=df[self.config['label_col']],
-                                    random_state=42)
-            logger.info(f"Sampled to {len(df):,} rows (fraud rate preserved)")
-
         logger.info(f"Class distribution: {df[self.config['label_col']].value_counts().to_dict()}")
         
         return df
