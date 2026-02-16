@@ -1,12 +1,13 @@
+import atexit
+import logging
 import os
 import sys
-import logging
 import time
-import atexit
-import pandas as pd
 from datetime import datetime
 
-# Ensure project root is on sys.path for local imports
+import pandas as pd
+
+# Ensure project root is on sys.path for local imports.
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
@@ -50,23 +51,20 @@ def _env_float(name: str, default: float) -> float:
     return float(raw.strip())
 
 
-_load_env_file(os.path.join(project_root, ".env"))  
+_load_env_file(os.path.join(project_root, ".env"))
 _load_env_file(os.path.join(project_root, ".env.local"), overwrite=True)
 
-# Global configuration (from .env when present)
 DATA_ROOT = os.environ.get("DATA_ROOT", os.path.join(project_root, "data"))
-RUN_SINGLE_DATASET = _env_bool("RUN_SINGLE_DATASET", False)
-RUN_FULL_ABLATION_SINGLE_DATASET = _env_bool(
-    "RUN_FULL_ABLATION_SINGLE_DATASET",
-    RUN_SINGLE_DATASET,
-)
 DATASET_NAME = os.environ.get("DATASET_NAME", "03_fraud_oracle.csv")
-ABLATION_SEED = _env_int("ABLATION_SEEDS", 42)
-USE_ANOMALY_FEATURE = _env_bool("USE_ANOMALY_FEATURE", True)
-ANOMALY_CONTAMINATION = _env_float(
-    "ANOMALY_CONTAMINATION",
-    0.01,
+RUN_FULL_ABLATION_SINGLE_DATASET = _env_bool("RUN_FULL_ABLATION_SINGLE_DATASET", True)
+RUN_SIGNIFICANCE_TESTS = _env_bool("RUN_SIGNIFICANCE_TESTS", True)
+ABLATION_SEED = _env_int(
+    "ABLATION_SEED",
+    _env_int("ABLATION_SEEDS", 42),  # Backward-compatible with older key
 )
+USE_ANOMALY_FEATURE = _env_bool("USE_ANOMALY_FEATURE", True)
+ANOMALY_CONTAMINATION = _env_float("ANOMALY_CONTAMINATION", 0.01)
+
 GAN_TRAIN_MAX_MINORITY_RATIO = _env_float("GAN_TRAIN_MAX_MINORITY_RATIO", 0.5)
 GAN_HIDDEN_DIM = _env_int("GAN_HIDDEN_DIM", 64)
 GAN_NOISE_DIM = _env_int("GAN_NOISE_DIM", 50)
@@ -94,13 +92,13 @@ def _append_computation_time(script_name: str) -> None:
         )
 
 
-atexit.register(_append_computation_time, "scripts/ablation_study.py")
+atexit.register(_append_computation_time, "scripts/single_dataset_ablation.py")
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("ablation_study.log"),
+        logging.FileHandler("single_dataset_ablation.log"),
         logging.StreamHandler(),
     ],
     force=True,
@@ -108,30 +106,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def build_datasets() -> dict[str, str]:
-    datasets = {}
-    for filename, cfg in DATASET_CONFIG.items():
-        datasets[cfg["name"]] = filename
-    return datasets
-
-
-def build_selected_datasets(
-    run_single_dataset: bool,
-    dataset_name: str,
-) -> tuple[dict[str, str], str]:
-    if run_single_dataset:
-        cfg = DATASET_CONFIG[dataset_name]
-        return {cfg["name"]: dataset_name}, dataset_name.replace(".csv", "")
-    return build_datasets(), "all_datasets"
-
-
-def log_experiments(label: str, experiments) -> None:
-    logger.info("=== %s experiments ===", label)
-    for exp in experiments:
-        logger.info("exp_id=%s components=%s", exp.exp_id, exp.components)
-
-
-def save_significance_results(
+def _save_significance_results(
     analyzer: AblationAnalyzer,
     experiments,
     datasets: dict[str, str],
@@ -150,20 +125,21 @@ def save_significance_results(
             if exp.exp_id in baselines and len(baseline_ids) > 1:
                 continue
             for dataset in datasets.keys():
-                test_result = analyzer.statistical_significance_test(
+                row = analyzer.statistical_significance_test(
                     exp_id_1=baseline_id,
                     exp_id_2=exp.exp_id,
                     dataset=dataset,
                     metric="pr_auc",
                 )
-                test_result["threshold_strategy"] = benchmark.threshold_strategy
-                test_result["precision_target"] = benchmark.precision_target
-                test_result["fpr_target"] = benchmark.fpr_target
-                test_result["exp_1_components"] = exp_map.get(test_result["exp_1"], {})
-                test_result["exp_2_components"] = exp_map.get(test_result["exp_2"], {})
-                results.append(test_result)
+                row["threshold_strategy"] = benchmark.threshold_strategy
+                row["precision_target"] = benchmark.precision_target
+                row["fpr_target"] = benchmark.fpr_target
+                row["exp_1_components"] = exp_map.get(row["exp_1"], {})
+                row["exp_2_components"] = exp_map.get(row["exp_2"], {})
+                results.append(row)
 
     if results:
+        os.makedirs(os.path.join("results", "ablation"), exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_path = os.path.join("results", "ablation", f"{filename_prefix}_{timestamp}.csv")
         pd.DataFrame(results).to_csv(out_path, index=False)
@@ -171,14 +147,27 @@ def save_significance_results(
 
 
 if __name__ == "__main__":
-    run_single_dataset = RUN_SINGLE_DATASET or RUN_FULL_ABLATION_SINGLE_DATASET
-    datasets, dataset_tag = build_selected_datasets(run_single_dataset, DATASET_NAME)
-    scope_suffix = "single" if run_single_dataset else "all"
-    logger.info("Run mode: %s", "single-dataset" if run_single_dataset else "all-datasets")
-    logger.info("Datasets: %s", datasets)
+    if DATASET_NAME not in DATASET_CONFIG:
+        raise ValueError(
+            f"Unknown DATASET_NAME='{DATASET_NAME}'. Available: {list(DATASET_CONFIG.keys())}"
+        )
+
+    if not RUN_FULL_ABLATION_SINGLE_DATASET:
+        logger.warning(
+            "RUN_FULL_ABLATION_SINGLE_DATASET=0 detected. "
+            "This script is intended for full single-dataset ablation; exiting."
+        )
+        raise SystemExit(0)
+
+    dataset_label = DATASET_CONFIG[DATASET_NAME]["name"]
+    datasets = {dataset_label: DATASET_NAME}
+    dataset_tag = DATASET_NAME.replace(".csv", "")
+
+    logger.info("Run mode: single-dataset full ablation")
+    logger.info("Dataset: %s (%s)", dataset_label, DATASET_NAME)
     logger.info(
         (
-            "Config: seeds=%s | use_anomaly=%s | anomaly_contamination=%s "
+            "Config: seed=%s | use_anomaly=%s | anomaly_contamination=%s "
             "| gan_epochs=%s | gan_batch=%s | gan_hidden=%s | gan_noise=%s | gan_n_critic=%s"
         ),
         ABLATION_SEED,
@@ -215,134 +204,104 @@ if __name__ == "__main__":
         gan_early_stopping_delta=GAN_EARLY_STOPPING_DELTA,
     )
 
-    logger.info("Generating Ablation: Oversampling Methods")
     exp_oversampling = ablation_mgr.generate_single_factor_ablation("oversampling")
+    exp_model = ablation_mgr.generate_single_factor_ablation("model")
+    exp_anomaly = ablation_mgr.generate_single_factor_ablation("anomaly_signal")
+    exp_calibration = ablation_mgr.generate_single_factor_ablation("calibration")
+    exp_pairwise = ablation_mgr.generate_pairwise_ablation("oversampling", "model")
+
     ablation_mgr.save_experiments(
         exp_oversampling,
-        "ablation_oversampling.json",
+        "ablation_oversampling_single_dataset.json",
         dataset_tag=dataset_tag,
-        experiment_tag=f"ablation_oversampling_{scope_suffix}_dataset",
+        experiment_tag="ablation_oversampling_single_dataset",
     )
-    log_experiments("Oversampling", exp_oversampling)
-
-    logger.info("Generating Ablation: Model Architecture")
-    exp_model = ablation_mgr.generate_single_factor_ablation("model")
     ablation_mgr.save_experiments(
         exp_model,
-        "ablation_model.json",
+        "ablation_model_single_dataset.json",
         dataset_tag=dataset_tag,
-        experiment_tag=f"ablation_model_{scope_suffix}_dataset",
+        experiment_tag="ablation_model_single_dataset",
     )
-    log_experiments("Model", exp_model)
-
-    logger.info("Generating Ablation: Anomaly Signals")
-    exp_anomaly = ablation_mgr.generate_single_factor_ablation("anomaly_signal")
     ablation_mgr.save_experiments(
         exp_anomaly,
-        "ablation_anomaly_signal.json",
+        "ablation_anomaly_single_dataset.json",
         dataset_tag=dataset_tag,
-        experiment_tag=f"ablation_anomaly_{scope_suffix}_dataset",
+        experiment_tag="ablation_anomaly_single_dataset",
     )
-    log_experiments("Anomaly", exp_anomaly)
-
-    logger.info("Generating Ablation: Calibration Methods")
-    exp_calibration = ablation_mgr.generate_single_factor_ablation("calibration")
     ablation_mgr.save_experiments(
         exp_calibration,
-        "ablation_calibration.json",
+        "ablation_calibration_single_dataset.json",
         dataset_tag=dataset_tag,
-        experiment_tag=f"ablation_calibration_{scope_suffix}_dataset",
+        experiment_tag="ablation_calibration_single_dataset",
     )
-    log_experiments("Calibration", exp_calibration)
-
-    logger.info("Generating Ablation: Oversampling × Model")
-    exp_pairwise = ablation_mgr.generate_pairwise_ablation("oversampling", "model")
     ablation_mgr.save_experiments(
         exp_pairwise,
-        "ablation_pairwise_oversampling_model.json",
+        "ablation_pairwise_single_dataset.json",
         dataset_tag=dataset_tag,
-        experiment_tag=f"ablation_pairwise_{scope_suffix}_dataset",
+        experiment_tag="ablation_pairwise_single_dataset",
     )
-    log_experiments("Oversampling×Model", exp_pairwise)
 
-    logger.info("%s", "=" * 60)
-    logger.info("Running Ablation Study: Oversampling")
-    logger.info("%s", "=" * 60)
     oversampling_df = benchmark.run_ablation_study(
         exp_oversampling,
         project_root,
-        experiment_tag=f"ablation_oversampling_{scope_suffix}_dataset",
+        experiment_tag="ablation_oversampling_single_dataset",
         dataset_tag=dataset_tag,
     )
-    save_significance_results(
-        analyzer=AblationAnalyzer(oversampling_df),
-        experiments=exp_oversampling,
-        datasets=datasets,
-        benchmark=benchmark,
-        baseline_ids=["ablation_oversampling_None"],
-        filename_prefix=f"significance_oversampling_{scope_suffix}",
-    )
-
-    logger.info("%s", "=" * 60)
-    logger.info("Running Ablation Study: Model")
-    logger.info("%s", "=" * 60)
     model_df = benchmark.run_ablation_study(
         exp_model,
         project_root,
-        experiment_tag=f"ablation_model_{scope_suffix}_dataset",
+        experiment_tag="ablation_model_single_dataset",
         dataset_tag=dataset_tag,
     )
-    save_significance_results(
-        analyzer=AblationAnalyzer(model_df),
-        experiments=exp_model,
-        datasets=datasets,
-        benchmark=benchmark,
-        baseline_ids=["ablation_model_LogisticRegression", "ablation_model_DecisionTree"],
-        filename_prefix=f"significance_models_{scope_suffix}",
-    )
-
-    logger.info("%s", "=" * 60)
-    logger.info("Running Ablation Study: Anomaly")
-    logger.info("%s", "=" * 60)
     anomaly_df = benchmark.run_ablation_study(
         exp_anomaly,
         project_root,
-        experiment_tag=f"ablation_anomaly_{scope_suffix}_dataset",
+        experiment_tag="ablation_anomaly_single_dataset",
         dataset_tag=dataset_tag,
     )
-    save_significance_results(
-        analyzer=AblationAnalyzer(anomaly_df),
-        experiments=exp_anomaly,
-        datasets=datasets,
-        benchmark=benchmark,
-        baseline_ids=["ablation_anomaly_signal_None"],
-        filename_prefix=f"significance_anomaly_{scope_suffix}",
-    )
-
-    logger.info("%s", "=" * 60)
-    logger.info("Running Ablation Study: Calibration")
-    logger.info("%s", "=" * 60)
     calibration_df = benchmark.run_ablation_study(
         exp_calibration,
         project_root,
-        experiment_tag=f"ablation_calibration_{scope_suffix}_dataset",
+        experiment_tag="ablation_calibration_single_dataset",
         dataset_tag=dataset_tag,
     )
-    save_significance_results(
-        analyzer=AblationAnalyzer(calibration_df),
-        experiments=exp_calibration,
-        datasets=datasets,
-        benchmark=benchmark,
-        baseline_ids=["ablation_calibration_None"],
-        filename_prefix=f"significance_calibration_{scope_suffix}",
-    )
-
-    logger.info("%s", "=" * 60)
-    logger.info("Running Ablation Study: Oversampling × Model (Pairwise)")
-    logger.info("%s", "=" * 60)
     benchmark.run_ablation_study(
         exp_pairwise,
         project_root,
-        experiment_tag=f"ablation_pairwise_{scope_suffix}_dataset",
+        experiment_tag="ablation_pairwise_single_dataset",
         dataset_tag=dataset_tag,
     )
+
+    if RUN_SIGNIFICANCE_TESTS:
+        _save_significance_results(
+            analyzer=AblationAnalyzer(oversampling_df),
+            experiments=exp_oversampling,
+            datasets=datasets,
+            benchmark=benchmark,
+            baseline_ids=["ablation_oversampling_None"],
+            filename_prefix="significance_oversampling_single",
+        )
+        _save_significance_results(
+            analyzer=AblationAnalyzer(model_df),
+            experiments=exp_model,
+            datasets=datasets,
+            benchmark=benchmark,
+            baseline_ids=["ablation_model_LogisticRegression", "ablation_model_DecisionTree"],
+            filename_prefix="significance_models_single",
+        )
+        _save_significance_results(
+            analyzer=AblationAnalyzer(anomaly_df),
+            experiments=exp_anomaly,
+            datasets=datasets,
+            benchmark=benchmark,
+            baseline_ids=["ablation_anomaly_signal_None"],
+            filename_prefix="significance_anomaly_single",
+        )
+        _save_significance_results(
+            analyzer=AblationAnalyzer(calibration_df),
+            experiments=exp_calibration,
+            datasets=datasets,
+            benchmark=benchmark,
+            baseline_ids=["ablation_calibration_None"],
+            filename_prefix="significance_calibration_single",
+        )
