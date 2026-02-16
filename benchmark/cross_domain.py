@@ -3,13 +3,14 @@ import os
 import random
 import time
 from typing import (
-    Any, 
-    Dict, 
-    Iterable, 
-    List, 
-    Optional, 
-    Tuple, 
-    cast
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    cast,
 )
 
 import numpy as np
@@ -50,21 +51,45 @@ class CrossDomainBenchmark:
         random_seeds: Optional[List[int]] = None,
         data_root: Optional[str] = None,
         handle_unknown_categories: bool = True,
+        use_anomaly_feature: bool = True,
+        anomaly_contamination: float = 0.01,
         precision_target: float = 0.9,
         fpr_target: float = 0.05,
         threshold_strategy: str = "precision",
         bootstrap_samples: int = 2000,
         gap_configs: Optional[Dict[str, TimeGapConfig]] = None,
+        gan_train_max_minority_ratio: float = 0.5,
+        gan_hidden_dim: int = 64,
+        gan_noise_dim: int = 50,
+        gan_n_critic: int = 2,
+        gan_epochs: int = 100,
+        gan_batch_size: int = 128,
+        gan_cache_path: Optional[str] = None,
+        gan_early_stopping: bool = True,
+        gan_early_stopping_patience: int = 10,
+        gan_early_stopping_delta: float = 1e-3,
     ) -> None:
         self.datasets = datasets
         self.output_dir = output_dir
         self.random_seeds = random_seeds or [42, 123]
         self.data_root = data_root
         self.handle_unknown_categories = handle_unknown_categories
+        self.use_anomaly_feature = use_anomaly_feature
+        self.anomaly_contamination = anomaly_contamination
         self.precision_target = precision_target
         self.fpr_target = fpr_target
         self.threshold_strategy = threshold_strategy
         self.bootstrap_samples = bootstrap_samples
+        self.gan_train_max_minority_ratio = gan_train_max_minority_ratio
+        self.gan_hidden_dim = gan_hidden_dim
+        self.gan_noise_dim = gan_noise_dim
+        self.gan_n_critic = gan_n_critic
+        self.gan_epochs = gan_epochs
+        self.gan_batch_size = gan_batch_size
+        self.gan_cache_path = gan_cache_path
+        self.gan_early_stopping = gan_early_stopping
+        self.gan_early_stopping_patience = gan_early_stopping_patience
+        self.gan_early_stopping_delta = gan_early_stopping_delta
         os.makedirs(output_dir, exist_ok=True)
 
         if gap_configs is None:
@@ -120,13 +145,14 @@ class CrossDomainBenchmark:
         y_test = cast(pd.Series, y_test)
 
         anomaly_method = experiment.components.get("anomaly_signal", "None")
-        if anomaly_method != "None":
+        if self.use_anomaly_feature and anomaly_method != "None":
             X_train, X_val, X_test = add_anomaly_scores(
                 X_train,
                 X_val,
                 X_test,
                 method=anomaly_method,
                 random_state=seed,
+                contamination=self.anomaly_contamination,
             )
             X_train = cast(pd.DataFrame, X_train)
             X_val = cast(pd.DataFrame, X_val)
@@ -433,21 +459,65 @@ class CrossDomainBenchmark:
             from model import oversample_with_pytorch_gan
 
             X_res, y_res, _, _ = oversample_with_pytorch_gan(
-                X, y, target_class=1, oversample_ratio=1.0, epochs=100, batch_size=128
+                X,
+                y,
+                target_class=1,
+                oversample_ratio=1.0,
+                epochs=self.gan_epochs,
+                batch_size=self.gan_batch_size,
+                noise_dim=self.gan_noise_dim,
+                hidden_dim=self.gan_hidden_dim,
+                train_max_minority_ratio=self.gan_train_max_minority_ratio,
+                early_stopping=self.gan_early_stopping,
+                early_stopping_patience=self.gan_early_stopping_patience,
+                early_stopping_delta=self.gan_early_stopping_delta,
+                cache_path=self.gan_cache_path,
+                cache_tag=f"seed_{seed}",
+                seed=seed,
             )
             return X_res, y_res
         if method == "CTGAN":
             from model import oversample_with_ctgan
 
             X_res, y_res, _, _ = oversample_with_ctgan(
-                X, y, target_class=1, oversample_ratio=1.0, epochs=100, batch_size=128
+                X,
+                y,
+                target_class=1,
+                oversample_ratio=1.0,
+                epochs=self.gan_epochs,
+                batch_size=self.gan_batch_size,
+                noise_dim=self.gan_noise_dim,
+                hidden_dim=self.gan_hidden_dim,
+                n_critic=self.gan_n_critic,
+                train_max_minority_ratio=self.gan_train_max_minority_ratio,
+                early_stopping=self.gan_early_stopping,
+                early_stopping_patience=self.gan_early_stopping_patience,
+                early_stopping_delta=self.gan_early_stopping_delta,
+                cache_path=self.gan_cache_path,
+                cache_tag=f"seed_{seed}",
+                seed=seed,
             )
             return X_res, y_res
         if method == "ConditionalWGAN-GP":
             from model import oversample_with_cond_wgangp
 
             X_res, y_res, _, _ = oversample_with_cond_wgangp(
-                X, y, target_class=1, target_ratio=1.0, epochs=100, batch_size=128
+                X,
+                y,
+                target_class=1,
+                target_ratio=1.0,
+                epochs=self.gan_epochs,
+                batch_size=self.gan_batch_size,
+                noise_dim=self.gan_noise_dim,
+                hidden_dim=self.gan_hidden_dim,
+                n_critic=self.gan_n_critic,
+                train_max_minority_ratio=self.gan_train_max_minority_ratio,
+                early_stopping=self.gan_early_stopping,
+                early_stopping_patience=self.gan_early_stopping_patience,
+                early_stopping_delta=self.gan_early_stopping_delta,
+                cache_path=self.gan_cache_path,
+                cache_tag=f"seed_{seed}",
+                seed=seed,
             )
             return X_res, y_res
 
@@ -487,12 +557,12 @@ class CrossDomainBenchmark:
         raise ValueError(f"Unknown model: {model_name}")
 
     def _apply_calibration(self, model, X_val, y_val, method: str):
-        method_map = {
-            "Platt": "sigmoid",
-            "Isotonic": "isotonic",
-        }
-        calibrated_method = method_map.get(method)
-        if calibrated_method is None:
+        calibrated_method: Literal["sigmoid", "isotonic"]
+        if method == "Platt":
+            calibrated_method = "sigmoid"
+        elif method == "Isotonic":
+            calibrated_method = "isotonic"
+        else:
             return model
 
         # sklearn new API: use FrozenEstimator for prefit calibration.
@@ -502,7 +572,7 @@ class CrossDomainBenchmark:
             # sklearn old API: still supports cv="prefit".
             return CalibratedClassifierCV(model, method=calibrated_method, cv="prefit").fit(X_val, y_val)
 
-        frozen = FrozenEstimator(model)
+        frozen = cast(Any, FrozenEstimator(model))
         return CalibratedClassifierCV(frozen, method=calibrated_method, cv=None).fit(X_val, y_val)
 
     @staticmethod
