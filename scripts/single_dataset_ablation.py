@@ -1,3 +1,4 @@
+import argparse
 import atexit
 import logging
 import os
@@ -54,10 +55,38 @@ def _env_float(name: str, default: float) -> float:
 _load_env_file(os.path.join(project_root, ".env"))
 _load_env_file(os.path.join(project_root, ".env.local"), overwrite=True)
 
+# Parse command-line arguments (override env vars when specified)
+parser = argparse.ArgumentParser(
+    description="Run single-dataset ablation study experiments",
+    formatter_class=argparse.RawTextHelpFormatter,
+)
+parser.add_argument(
+    "--experiment",
+    type=str,
+    default="all",
+    choices=["oversampling", "model", "anomaly", "calibration", "pairwise", "all"],
+    help=(
+        "Which experiment group to run:\n"
+        "  oversampling  - 8 experiments comparing SMOTE, Borderline-SMOTE, ADASYN, etc.\n"
+        "  model         - 5 experiments testing different ML models\n"
+        "  anomaly       - 3 experiments with different anomaly detection signals\n"
+        "  calibration   - 3 experiments with different calibration methods\n"
+        "  pairwise      - 40 pairwise experiments (oversampling × model)\n"
+        "  all           - run all experiments (default)\n"
+    ),
+)
+parser.add_argument(
+    "--skip-significance",
+    action="store_true",
+    help="Skip statistical significance testing after experiments",
+)
+args = parser.parse_args()
+
 DATA_ROOT = os.environ.get("DATA_ROOT", os.path.join(project_root, "data"))
 DATASET_NAME = os.environ.get("DATASET_NAME", "03_fraud_oracle.csv")
 RUN_FULL_ABLATION_SINGLE_DATASET = _env_bool("RUN_FULL_ABLATION_SINGLE_DATASET", True)
-RUN_SIGNIFICANCE_TESTS = _env_bool("RUN_SIGNIFICANCE_TESTS", True)
+# Command-line --skip-significance overrides env var
+RUN_SIGNIFICANCE_TESTS = False if args.skip_significance else _env_bool("RUN_SIGNIFICANCE_TESTS", True)
 ABLATION_SEED = _env_int(
     "ABLATION_SEED",
     _env_int("ABLATION_SEEDS", 42),  # Backward-compatible with older key
@@ -163,7 +192,7 @@ if __name__ == "__main__":
     datasets = {dataset_label: DATASET_NAME}
     dataset_tag = DATASET_NAME.replace(".csv", "")
 
-    logger.info("Run mode: single-dataset full ablation")
+    logger.info("Run mode: single-dataset ablation (experiment=%s)", args.experiment)
     logger.info("Dataset: %s (%s)", dataset_label, DATASET_NAME)
     logger.info(
         (
@@ -204,104 +233,182 @@ if __name__ == "__main__":
         gan_early_stopping_delta=GAN_EARLY_STOPPING_DELTA,
     )
 
-    exp_oversampling = ablation_mgr.generate_single_factor_ablation("oversampling")
-    exp_model = ablation_mgr.generate_single_factor_ablation("model")
-    exp_anomaly = ablation_mgr.generate_single_factor_ablation("anomaly_signal")
-    exp_calibration = ablation_mgr.generate_single_factor_ablation("calibration")
-    exp_pairwise = ablation_mgr.generate_pairwise_ablation("oversampling", "model")
+    # Generate experiments conditionally based on --experiment flag
+    experiments_to_run = {}
+    
+    if args.experiment in ["oversampling", "all"]:
+        exp_oversampling = ablation_mgr.generate_single_factor_ablation("oversampling")
+        experiments_to_run["oversampling"] = exp_oversampling
+        logger.info("Generated %d oversampling experiments", len(exp_oversampling))
+    
+    if args.experiment in ["model", "all"]:
+        exp_model = ablation_mgr.generate_single_factor_ablation("model")
+        experiments_to_run["model"] = exp_model
+        logger.info("Generated %d model experiments", len(exp_model))
+    
+    if args.experiment in ["anomaly", "all"]:
+        exp_anomaly = ablation_mgr.generate_single_factor_ablation("anomaly_signal")
+        experiments_to_run["anomaly"] = exp_anomaly
+        logger.info("Generated %d anomaly experiments", len(exp_anomaly))
+    
+    if args.experiment in ["calibration", "all"]:
+        exp_calibration = ablation_mgr.generate_single_factor_ablation("calibration")
+        experiments_to_run["calibration"] = exp_calibration
+        logger.info("Generated %d calibration experiments", len(exp_calibration))
+    
+    if args.experiment in ["pairwise", "all"]:
+        exp_pairwise = ablation_mgr.generate_pairwise_ablation("oversampling", "model")
+        experiments_to_run["pairwise"] = exp_pairwise
+        logger.info("Generated %d pairwise experiments", len(exp_pairwise))
 
-    ablation_mgr.save_experiments(
-        exp_oversampling,
-        "ablation_oversampling_single_dataset.json",
-        dataset_tag=dataset_tag,
-        experiment_tag="ablation_oversampling_single_dataset",
-    )
-    ablation_mgr.save_experiments(
-        exp_model,
-        "ablation_model_single_dataset.json",
-        dataset_tag=dataset_tag,
-        experiment_tag="ablation_model_single_dataset",
-    )
-    ablation_mgr.save_experiments(
-        exp_anomaly,
-        "ablation_anomaly_single_dataset.json",
-        dataset_tag=dataset_tag,
-        experiment_tag="ablation_anomaly_single_dataset",
-    )
-    ablation_mgr.save_experiments(
-        exp_calibration,
-        "ablation_calibration_single_dataset.json",
-        dataset_tag=dataset_tag,
-        experiment_tag="ablation_calibration_single_dataset",
-    )
-    ablation_mgr.save_experiments(
-        exp_pairwise,
-        "ablation_pairwise_single_dataset.json",
-        dataset_tag=dataset_tag,
-        experiment_tag="ablation_pairwise_single_dataset",
-    )
+    # Save experiment configurations
+    if "oversampling" in experiments_to_run:
+        ablation_mgr.save_experiments(
+            experiments_to_run["oversampling"],
+            "ablation_oversampling_single_dataset.json",
+            dataset_tag=dataset_tag,
+            experiment_tag="ablation_oversampling_single_dataset",
+        )
+    if "model" in experiments_to_run:
+        ablation_mgr.save_experiments(
+            experiments_to_run["model"],
+            "ablation_model_single_dataset.json",
+            dataset_tag=dataset_tag,
+            experiment_tag="ablation_model_single_dataset",
+        )
+    if "anomaly" in experiments_to_run:
+        ablation_mgr.save_experiments(
+            experiments_to_run["anomaly"],
+            "ablation_anomaly_single_dataset.json",
+            dataset_tag=dataset_tag,
+            experiment_tag="ablation_anomaly_single_dataset",
+        )
+    if "calibration" in experiments_to_run:
+        ablation_mgr.save_experiments(
+            experiments_to_run["calibration"],
+            "ablation_calibration_single_dataset.json",
+            dataset_tag=dataset_tag,
+            experiment_tag="ablation_calibration_single_dataset",
+        )
+    if "pairwise" in experiments_to_run:
+        ablation_mgr.save_experiments(
+            experiments_to_run["pairwise"],
+            "ablation_pairwise_single_dataset.json",
+            dataset_tag=dataset_tag,
+            experiment_tag="ablation_pairwise_single_dataset",
+        )
 
-    oversampling_df = benchmark.run_ablation_study(
-        exp_oversampling,
-        project_root,
-        experiment_tag="ablation_oversampling_single_dataset",
-        dataset_tag=dataset_tag,
-    )
-    model_df = benchmark.run_ablation_study(
-        exp_model,
-        project_root,
-        experiment_tag="ablation_model_single_dataset",
-        dataset_tag=dataset_tag,
-    )
-    anomaly_df = benchmark.run_ablation_study(
-        exp_anomaly,
-        project_root,
-        experiment_tag="ablation_anomaly_single_dataset",
-        dataset_tag=dataset_tag,
-    )
-    calibration_df = benchmark.run_ablation_study(
-        exp_calibration,
-        project_root,
-        experiment_tag="ablation_calibration_single_dataset",
-        dataset_tag=dataset_tag,
-    )
-    benchmark.run_ablation_study(
-        exp_pairwise,
-        project_root,
-        experiment_tag="ablation_pairwise_single_dataset",
-        dataset_tag=dataset_tag,
-    )
+    # Run experiments and collect results
+    results_dfs = {}
+    
+    if "oversampling" in experiments_to_run:
+        logger.info("="*60)
+        logger.info("Running oversampling experiments")
+        logger.info("="*60)
+        oversampling_df = benchmark.run_ablation_study(
+            experiments_to_run["oversampling"],
+            project_root,
+            experiment_tag="ablation_oversampling_single_dataset",
+            dataset_tag=dataset_tag,
+        )
+        results_dfs["oversampling"] = oversampling_df
+        logger.info("Oversampling experiments completed\n")
+    
+    if "model" in experiments_to_run:
+        logger.info("="*60)
+        logger.info("Running model experiments")
+        logger.info("="*60)
+        model_df = benchmark.run_ablation_study(
+            experiments_to_run["model"],
+            project_root,
+            experiment_tag="ablation_model_single_dataset",
+            dataset_tag=dataset_tag,
+        )
+        results_dfs["model"] = model_df
+        logger.info("Model experiments completed\n")
+    
+    if "anomaly" in experiments_to_run:
+        logger.info("="*60)
+        logger.info("Running anomaly experiments")
+        logger.info("="*60)
+        anomaly_df = benchmark.run_ablation_study(
+            experiments_to_run["anomaly"],
+            project_root,
+            experiment_tag="ablation_anomaly_single_dataset",
+            dataset_tag=dataset_tag,
+        )
+        results_dfs["anomaly"] = anomaly_df
+        logger.info("Anomaly experiments completed\n")
+    
+    if "calibration" in experiments_to_run:
+        logger.info("="*60)
+        logger.info("Running calibration experiments")
+        logger.info("="*60)
+        calibration_df = benchmark.run_ablation_study(
+            experiments_to_run["calibration"],
+            project_root,
+            experiment_tag="ablation_calibration_single_dataset",
+            dataset_tag=dataset_tag,
+        )
+        results_dfs["calibration"] = calibration_df
+        logger.info("Calibration experiments completed\n")
+    
+    if "pairwise" in experiments_to_run:
+        logger.info("="*60)
+        logger.info("Running pairwise experiments")
+        logger.info("="*60)
+        pairwise_df = benchmark.run_ablation_study(
+            experiments_to_run["pairwise"],
+            project_root,
+            experiment_tag="ablation_pairwise_single_dataset",
+            dataset_tag=dataset_tag,
+        )
+        results_dfs["pairwise"] = pairwise_df
+        logger.info("Pairwise experiments completed\n")
 
     if RUN_SIGNIFICANCE_TESTS:
-        _save_significance_results(
-            analyzer=AblationAnalyzer(oversampling_df),
-            experiments=exp_oversampling,
-            datasets=datasets,
-            benchmark=benchmark,
-            baseline_ids=["ablation_oversampling_None"],
-            filename_prefix="significance_oversampling_single",
-        )
-        _save_significance_results(
-            analyzer=AblationAnalyzer(model_df),
-            experiments=exp_model,
-            datasets=datasets,
-            benchmark=benchmark,
-            baseline_ids=["ablation_model_LogisticRegression", "ablation_model_DecisionTree"],
-            filename_prefix="significance_models_single",
-        )
-        _save_significance_results(
-            analyzer=AblationAnalyzer(anomaly_df),
-            experiments=exp_anomaly,
-            datasets=datasets,
-            benchmark=benchmark,
-            baseline_ids=["ablation_anomaly_signal_None"],
-            filename_prefix="significance_anomaly_single",
-        )
-        _save_significance_results(
-            analyzer=AblationAnalyzer(calibration_df),
-            experiments=exp_calibration,
-            datasets=datasets,
-            benchmark=benchmark,
-            baseline_ids=["ablation_calibration_None"],
-            filename_prefix="significance_calibration_single",
-        )
+        logger.info("="*60)
+        logger.info("Running statistical significance tests")
+        logger.info("="*60 + "\n")
+        
+        if "oversampling" in results_dfs:
+            _save_significance_results(
+                analyzer=AblationAnalyzer(results_dfs["oversampling"]),
+                experiments=experiments_to_run["oversampling"],
+                datasets=datasets,
+                benchmark=benchmark,
+                baseline_ids=["ablation_oversampling_None"],
+                filename_prefix="significance_oversampling_single",
+            )
+        
+        if "model" in results_dfs:
+            _save_significance_results(
+                analyzer=AblationAnalyzer(results_dfs["model"]),
+                experiments=experiments_to_run["model"],
+                datasets=datasets,
+                benchmark=benchmark,
+                baseline_ids=["ablation_model_LogisticRegression", "ablation_model_DecisionTree"],
+                filename_prefix="significance_models_single",
+            )
+        
+        if "anomaly" in results_dfs:
+            _save_significance_results(
+                analyzer=AblationAnalyzer(results_dfs["anomaly"]),
+                experiments=experiments_to_run["anomaly"],
+                datasets=datasets,
+                benchmark=benchmark,
+                baseline_ids=["ablation_anomaly_signal_None"],
+                filename_prefix="significance_anomaly_single",
+            )
+        
+        if "calibration" in results_dfs:
+            _save_significance_results(
+                analyzer=AblationAnalyzer(results_dfs["calibration"]),
+                experiments=experiments_to_run["calibration"],
+                datasets=datasets,
+                benchmark=benchmark,
+                baseline_ids=["ablation_calibration_None"],
+                filename_prefix="significance_calibration_single",
+            )
+        
+        logger.info("All significance tests completed")
