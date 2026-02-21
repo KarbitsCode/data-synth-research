@@ -63,16 +63,20 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "--experiment",
     type=str,
-    default="all",
+    nargs="+",
+    default=["all"],
     choices=["oversampling", "model", "anomaly", "calibration", "pairwise", "all"],
     help=(
-        "Which experiment group to run:\n"
+        "Which experiment group(s) to run (can specify multiple):\n"
         "  oversampling  - 8 experiments comparing SMOTE, Borderline-SMOTE, ADASYN, etc.\n"
         "  model         - 5 experiments testing different ML models\n"
         "  anomaly       - 3 experiments with different anomaly detection signals\n"
         "  calibration   - 3 experiments with different calibration methods\n"
         "  pairwise      - 40 pairwise experiments (oversampling × model)\n"
         "  all           - run all experiments (default)\n"
+        "Examples:\n"
+        "  --experiment oversampling model      # Run oversampling and model only\n"
+        "  --experiment anomaly calibration     # Run anomaly and calibration only\n"
     ),
 )
 parser.add_argument(
@@ -81,6 +85,11 @@ parser.add_argument(
     help="Skip statistical significance testing after experiments",
 )
 args = parser.parse_args()
+
+# If 'all' is specified, run all experiments
+experiment_list = args.experiment
+if "all" in experiment_list:
+    experiment_list = ["oversampling", "model", "anomaly", "calibration", "pairwise"]
 
 DATA_ROOT = os.environ.get("DATA_ROOT", os.path.join(project_root, "data"))
 DATASET_NAME = os.environ.get("DATASET_NAME", "03_fraud_oracle.csv")
@@ -192,7 +201,7 @@ if __name__ == "__main__":
     datasets = {dataset_label: DATASET_NAME}
     dataset_tag = DATASET_NAME.replace(".csv", "")
 
-    logger.info("Run mode: single-dataset ablation (experiment=%s)", args.experiment)
+    logger.info("Run mode: single-dataset ablation (experiments=%s)", ", ".join(experiment_list))
     logger.info("Dataset: %s (%s)", dataset_label, DATASET_NAME)
     logger.info(
         (
@@ -236,27 +245,27 @@ if __name__ == "__main__":
     # Generate experiments conditionally based on --experiment flag
     experiments_to_run = {}
     
-    if args.experiment in ["oversampling", "all"]:
+    if "oversampling" in experiment_list:
         exp_oversampling = ablation_mgr.generate_single_factor_ablation("oversampling")
         experiments_to_run["oversampling"] = exp_oversampling
         logger.info("Generated %d oversampling experiments", len(exp_oversampling))
     
-    if args.experiment in ["model", "all"]:
+    if "model" in experiment_list:
         exp_model = ablation_mgr.generate_single_factor_ablation("model")
         experiments_to_run["model"] = exp_model
         logger.info("Generated %d model experiments", len(exp_model))
     
-    if args.experiment in ["anomaly", "all"]:
+    if "anomaly" in experiment_list:
         exp_anomaly = ablation_mgr.generate_single_factor_ablation("anomaly_signal")
         experiments_to_run["anomaly"] = exp_anomaly
         logger.info("Generated %d anomaly experiments", len(exp_anomaly))
     
-    if args.experiment in ["calibration", "all"]:
+    if "calibration" in experiment_list:
         exp_calibration = ablation_mgr.generate_single_factor_ablation("calibration")
         experiments_to_run["calibration"] = exp_calibration
         logger.info("Generated %d calibration experiments", len(exp_calibration))
     
-    if args.experiment in ["pairwise", "all"]:
+    if "pairwise" in experiment_list:
         exp_pairwise = ablation_mgr.generate_pairwise_ablation("oversampling", "model")
         experiments_to_run["pairwise"] = exp_pairwise
         logger.info("Generated %d pairwise experiments", len(exp_pairwise))
